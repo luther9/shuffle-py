@@ -3,16 +3,34 @@
 # Copyright 2018 Luther Thompson
 
 import argparse
+import collections
+import random
 import sys
 
+import ilinkedlist
+
 parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument('-seed', type=int, help='Random number seed')
 parser.add_argument(
   'uniques', type=int, help='Number of unique, unshuffled cards',
 )
 
 
+# id is used to see if this card is identical to other cards.
+# position is the card's final position in the shuffled deck.
+Card = collections.namedtuple('Card', 'id position')
+
+
 def main(argv):
-  print(parser.parse_args(argv[1:]).uniques)
+  args = parser.parse_args(argv[1:])
+  uniqueRange = range(args.uniques)
+  rng = random.Random(args.seed)
+  print(
+    ilinkedlist.reverse(
+      Card(id, position) for id, position
+      in zip(uniqueRange, rng.sample(uniqueRange, k=len(uniqueRange)))
+    )
+  )
 
 
 if __name__ == '__main__':
