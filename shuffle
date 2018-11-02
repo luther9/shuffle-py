@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 
 # Copyright 2018 Luther Thompson
+# This program is licensed under CC-0.
+
+# TODO:
+# Detect streaks and always keep them together when splitting.
+# Take numbers of identical cards as arguments.
+# When combining lists of cards, move around identical cards to make bigger
+# streaks.
 
 import argparse
 import collections
@@ -21,17 +28,70 @@ parser.add_argument(
 Card = collections.namedtuple('Card', 'id position')
 
 
-def main(argv):
-  args = parser.parse_args(argv[1:])
-  uniqueRange = range(args.uniques)
-  rng = random.Random(args.seed)
-  print(
-    ilinkedlist.reverse(
-      Card(id, position) for id, position
-      in zip(uniqueRange, rng.sample(uniqueRange, k=len(uniqueRange)))
+def getTarget(card, cutoff):
+  """True if the card belongs in pile B."""
+  return card.position < cutoff
+
+
+def getTransfer(hand, cutoff):
+  target = getTarget(hand.car, cutoff)
+  transfer = ilinkedlist.nil
+  while hand and getTarget(hand.car, cutoff) == target:
+    transfer = ilinkedlist.Pair(hand.car, transfer)
+    hand = hand.cdr
+  return target, transfer, hand
+
+
+def combine(a, b):
+  """Combine two card piles into a single linked list."""
+  return b.appendReverse(a)
+
+
+def split(hand):
+  """Guide the user to split the hand pile into two piles."""
+  median = min(c.position for c in hand) + len(hand) / 2
+  # Round off the cutoff in favor of a larger B pile.
+  cutoff = int(median) + bool(median % 1)
+  piles = ilinkedlist.nil, ilinkedlist.nil
+  while hand:
+    target, transfer, hand = getTransfer(hand, cutoff)
+    letter = 'B' if target else 'A'
+    input(f'{len(transfer)} to {letter}')
+    piles = tuple(
+      pile if i != target else combine(transfer, pile) for i, pile
+      in enumerate(piles)
     )
+  return piles
+
+
+def main(argv):
+  args = parser.parse_args(argv)
+  uniqueRange = range(args.uniques)
+  piles = ilinkedlist.new(
+    (
+      ilinkedlist.reverse(
+        Card(id, position) for id, position
+        in zip(
+          uniqueRange,
+          random.Random(args.seed).sample(uniqueRange, k=len(uniqueRange)),
+        )
+      ),
+    ),
   )
+  while piles:
+    hand = piles.car
+    rest = piles.cdr
+    if all(
+        len(node) == 1 or node.car.position + 1 == node.cdr.car.position
+        for node in hand.nodes()
+    ):
+      print(f'Pile of {len(hand)} cards is shuffled.')
+      piles = rest
+    else:
+      print(*(len(pile) for pile in piles))
+      newPiles = split(hand)
+      piles = ilinkedlist.Pair(newPiles[0], ilinkedlist.Pair(newPiles[1], rest))
 
 
 if __name__ == '__main__':
-  main(sys.argv)
+  main(sys.argv[1:])
