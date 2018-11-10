@@ -39,12 +39,12 @@ def getTransfer(hand, cutoff):
   while hand and getTarget(hand.car, cutoff) == target:
     transfer = ilinkedlist.Pair(hand.car, transfer)
     hand = hand.cdr
-  return target, transfer, hand
+  return target, reversed(transfer), hand
 
 
 def combine(a, b):
   """Combine two card piles into a single linked list."""
-  return b.appendReverse(a)
+  return a + b
 
 
 def split(hand):
@@ -58,8 +58,8 @@ def split(hand):
     letter = 'B' if target else 'A'
     input(f'{len(transfer)} to {letter}')
     piles = tuple(
-      pile if i != target else combine(transfer, pile) for i, pile
-      in enumerate(piles)
+      pile if i != target else combine(transfer, pile)
+      for i, pile in enumerate(piles)
     )
   return piles
 
@@ -70,8 +70,8 @@ def main(argv):
   piles = ilinkedlist.new(
     (
       ilinkedlist.reverse(
-        Card(id, position) for id, position
-        in zip(
+        Card(id, position)
+        for id, position in zip(
           uniqueRange,
           random.Random(args.seed).sample(uniqueRange, k=len(uniqueRange)),
         )
@@ -89,7 +89,11 @@ def main(argv):
       piles = rest
     else:
       print(*(len(pile) for pile in piles))
-      newPiles = split(hand)
+      try:
+        newPiles = split(hand)
+      except EOFError:
+        print()
+        break
       piles = newPiles + rest
 
 
