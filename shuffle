@@ -90,7 +90,7 @@ def main(argv):
     else:
       print(*(len(pile) for pile in piles))
       newPiles = split(hand)
-      piles = ilinkedlist.Pair(newPiles[0], ilinkedlist.Pair(newPiles[1], rest))
+      piles = newPiles + rest
 
 
 if __name__ == '__main__':
