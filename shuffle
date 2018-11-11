@@ -5,21 +5,25 @@
 
 # TODO:
 # Detect streaks and always keep them together when splitting.
-# Take numbers of identical cards as arguments.
-# When combining lists of cards, move around identical cards to make bigger
-# streaks.
 
 import argparse
 import collections
+import functools
+import itertools
 import random
 import sys
 
 import ilinkedlist
 
 parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument('-help', action='help')
 parser.add_argument('-seed', type=int, help='Random number seed')
 parser.add_argument(
   'uniques', type=int, help='Number of unique, unshuffled cards',
+)
+parser.add_argument(
+  'identicals', nargs='*', type=int,
+  help='Numbers of identical or pre-shuffled cards',
 )
 
 
@@ -44,6 +48,9 @@ def getTransfer(hand, cutoff):
 
 def combine(a, b):
   """Combine two card piles into a single linked list."""
+  # TODO:
+  # Look at identical cards from the bottom of a and other identical cards from
+  # the top of b and see if they can be rearranged to form a new streak.
   return a + b
 
 
@@ -66,18 +73,27 @@ def split(hand):
 
 def main(argv):
   args = parser.parse_args(argv)
-  uniqueRange = range(args.uniques)
-  piles = ilinkedlist.new(
-    (
-      ilinkedlist.reverse(
-        Card(id, position)
-        for id, position in zip(
-          uniqueRange,
-          random.Random(args.seed).sample(uniqueRange, k=len(uniqueRange)),
-        )
-      ),
+  uniques = args.uniques
+  identicals = args.identicals
+  nCards = uniques + sum(identicals)
+  # This gives us the position for each card.
+  pool = iter(random.Random(args.seed).sample(range(nCards), nCards))
+  # This gives us the id for each group of identical cards.
+  idPool = itertools.count()
+
+  def addGroup(deck, n):
+    """deck is the deck we've built so far. n is the number of cards to add."""
+    id = next(idPool)
+    return sorted(
+      Card(id, position) for position in itertools.islice(pool, n)
+    ) + deck
+
+  piles = ilinkedlist.new((
+    functools.reduce(
+      addGroup, itertools.chain(itertools.repeat(1, uniques), identicals),
+      ilinkedlist.nil,
     ),
-  )
+  ))
   while piles:
     hand = piles.car
     rest = piles.cdr
