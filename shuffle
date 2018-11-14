@@ -46,12 +46,86 @@ def getTransfer(hand, cutoff):
   return target, reversed(transfer), hand
 
 
+def bottomIdGroup(pile):
+  """Return pile split into two lists with the second one being all cards at
+  the end with the same id.
+  """
+  head = currentHead = ilinkedlist.nil
+  for current in pile.nodes():
+    if pile.car.id != current.car.id:
+      head = currentHead
+      pile = current
+    currentHead = ilinkedlist.Pair(current.car, currentHead)
+  return reversed(head), pile
+
+
+def topIdGroup(pile):
+  """Return pile split into two lists with the first one being all cards at the
+  top with the same id.
+
+  pile must not be nil.
+  """
+  id = pile.car.id
+  head = ilinkedlist.nil
+  while pile and pile.car.id == id:
+    head = ilinkedlist.Pair(pile.car, head)
+    pile = pile.cdr
+  return reversed(head), pile
+
+
+def findMatchingStreak(pile, target):
+  """If pile contains a streak that would be continued by target, return pile
+  with that streak moved to the bottom. Otherwise, return None.
+  """
+  # head: Not in the streak we want.
+  # currentHead: Everything before current. Assigned to head when we change
+  # streaks.
+  # streak: The current streak.
+  head = currentHead = streak = ilinkedlist.nil
+  for current in pile.nodes():
+    currentHead = ilinkedlist.Pair(current.car, currentHead)
+    streak = ilinkedlist.Pair(current.car, streak)
+    if streak.car.position + 1 == target:
+      return (current.cdr + reversed(streak)).appendReverse(head)
+    if current.cdr and streak.car.position + 1 != current.cdr.car.position:
+      head = currentHead
+      streak = ilinkedlist.nil
+
+
+def topStreak(pile):
+  """Return a tuple with the top streak of pile separated from the rest."""
+  head = ilinkedlist.nil
+  for pair in pile.nodes():
+    head = ilinkedlist.Pair(pair.car, head)
+    if not pair.cdr or pair.car.position + 1 != pair.cdr.car.position:
+      return reversed(head), pair.cdr
+
+
+def combineIdenticals(upper, lower):
+  """Combine two homogeneous piles into one list.
+
+  If possible, rearrange the cards to create a new streak between them.
+  """
+  # We search lower first so that if the bottom of upper and the top of lower
+  # already match, we can keep them sorted rather than try some other
+  # rearrangement.
+  lowerHead = ilinkedlist.nil
+  for lowerTail in lower.nodes():
+    fixedUpper = findMatchingStreak(upper, lowerTail.car.position)
+    if fixedUpper is not None:
+      streak, tail = topStreak(lowerTail)
+      return fixedUpper + (streak + tail.appendReverse(lowerHead))
+    lowerHead = ilinkedlist.Pair(lowerTail.car, lowerHead)
+  return upper + lower
+
+
 def combine(a, b):
   """Combine two card piles into a single linked list."""
-  # TODO:
-  # Look at identical cards from the bottom of a and other identical cards from
-  # the top of b and see if they can be rearranged to form a new streak.
-  return a + b
+  if not b:
+    return a
+  aMain, aGroup = bottomIdGroup(a)
+  bGroup, bMain = topIdGroup(b)
+  return aMain + (combineIdenticals(aGroup, bGroup) + bMain)
 
 
 def split(hand):
@@ -84,9 +158,12 @@ def main(argv):
   def addGroup(deck, n):
     """deck is the deck we've built so far. n is the number of cards to add."""
     id = next(idPool)
-    return sorted(
-      Card(id, position) for position in itertools.islice(pool, n)
-    ) + deck
+    return combine(
+      ilinkedlist.new(
+        Card(id, position) for position in sorted(itertools.islice(pool, n))
+      ),
+      deck,
+    )
 
   piles = ilinkedlist.new((
     functools.reduce(
