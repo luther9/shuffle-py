@@ -5,6 +5,7 @@
 
 # TODO:
 # Detect streaks and always keep them together when splitting.
+# Do this by using topStreak inside getTransfer.
 
 import argparse
 import collections
@@ -27,20 +28,29 @@ parser.add_argument(
 )
 
 
-# id is used to see if this card is identical to other cards.
-# position is the card's final position in the shuffled deck.
-Card = collections.namedtuple('Card', 'id position')
+# position is the streak's final position in the shuffled deck.
+# len is the length of the streak.
+# id is used to see if this streak's cards are identical to other cards. An id
+# of None indicates that this streak mixes different ids, and therefore can't be
+# rearranged.
+Streak = collections.namedtuple('Streak', 'position len id')
 
 
-def getTarget(card, cutoff):
+def getTarget(card, median):
   """True if the card belongs in pile B."""
-  return card.position < cutoff
+  return card.position + card.len / 2 <= median
 
 
-def getTransfer(hand, cutoff):
-  target = getTarget(hand.car, cutoff)
+def getTransfer(hand, median):
+  """Return a 3-tuple describing a transfer from the hand to a new pile.
+
+  0: The target pile. False for A, True for B.
+  1: The list of streaks that go to the target pile.
+  2: The remaining hand.
+  """
+  target = getTarget(hand.car, median)
   transfer = ilinkedlist.nil
-  while hand and getTarget(hand.car, cutoff) == target:
+  while hand and getTarget(hand.car, median) == target:
     transfer = ilinkedlist.Pair(hand.car, transfer)
     hand = hand.cdr
   return target, reversed(transfer), hand
@@ -51,8 +61,8 @@ def bottomIdGroup(pile):
   the end with the same id.
   """
   head = currentHead = ilinkedlist.nil
-  for current in pile.nodes():
-    if pile.car.id != current.car.id:
+  for current in pile.pairs():
+    if current.car.id is None or pile.car.id != current.car.id:
       head = currentHead
       pile = current
     currentHead = ilinkedlist.Pair(current.car, currentHead)
@@ -66,6 +76,8 @@ def topIdGroup(pile):
   pile must not be nil.
   """
   id = pile.car.id
+  if id is None:
+    return ilinkedlist.new((pile.car,)), pile.cdr
   head = ilinkedlist.nil
   while pile and pile.car.id == id:
     head = ilinkedlist.Pair(pile.car, head)
@@ -75,30 +87,15 @@ def topIdGroup(pile):
 
 def findMatchingStreak(pile, target):
   """If pile contains a streak that would be continued by target, return pile
-  with that streak moved to the bottom. Otherwise, return None.
+  with that streak moved out to a second value. Otherwise, return None. pile
+  must be homogeneous.
   """
-  # head: Not in the streak we want.
-  # currentHead: Everything before current. Assigned to head when we change
-  # streaks.
-  # streak: The current streak.
-  head = currentHead = streak = ilinkedlist.nil
-  for current in pile.nodes():
-    currentHead = ilinkedlist.Pair(current.car, currentHead)
-    streak = ilinkedlist.Pair(current.car, streak)
-    if streak.car.position + 1 == target:
-      return (current.cdr + reversed(streak)).appendReverse(head)
-    if current.cdr and streak.car.position + 1 != current.cdr.car.position:
-      head = currentHead
-      streak = ilinkedlist.nil
-
-
-def topStreak(pile):
-  """Return a tuple with the top streak of pile separated from the rest."""
   head = ilinkedlist.nil
-  for pair in pile.nodes():
-    head = ilinkedlist.Pair(pair.car, head)
-    if not pair.cdr or pair.car.position + 1 != pair.cdr.car.position:
-      return reversed(head), pair.cdr
+  for current in pile.pairs():
+    streak = current.car
+    if streak.position + streak.len == target:
+      return current.cdr.appendReverse(head), streak
+    head = ilinkedlist.Pair(streak, head)
 
 
 def combineIdenticals(upper, lower):
@@ -110,11 +107,14 @@ def combineIdenticals(upper, lower):
   # already match, we can keep them sorted rather than try some other
   # rearrangement.
   lowerHead = ilinkedlist.nil
-  for lowerTail in lower.nodes():
-    fixedUpper = findMatchingStreak(upper, lowerTail.car.position)
-    if fixedUpper is not None:
-      streak, tail = topStreak(lowerTail)
-      return fixedUpper + (streak + tail.appendReverse(lowerHead))
+  for lowerTail in lower.pairs():
+    rearrangement = findMatchingStreak(upper, lowerTail.car.position)
+    if rearrangement is not None:
+      fixedUpper, last = rearrangement
+      return fixedUpper + ilinkedlist.Pair(
+        Streak(last.position, last.len + lowerTail.car.len, None),
+        lowerTail.cdr.appendReverse(lowerHead),
+      )
     lowerHead = ilinkedlist.Pair(lowerTail.car, lowerHead)
   return upper + lower
 
@@ -130,19 +130,40 @@ def combine(a, b):
 
 def split(hand):
   """Guide the user to split the hand pile into two piles."""
-  median = min(c.position for c in hand) + len(hand) / 2
-  # Round off the cutoff in favor of a larger B pile.
-  cutoff = int(median) + bool(median % 1)
+  median = min(c.position for c in hand) + pileSize(hand) / 2
   piles = ilinkedlist.nil, ilinkedlist.nil
   while hand:
-    target, transfer, hand = getTransfer(hand, cutoff)
+    target, transfer, hand = getTransfer(hand, median)
     letter = 'B' if target else 'A'
-    input(f'{len(transfer)} to {letter}')
+    input(f'{pileSize(transfer)} to {letter}')
     piles = tuple(
       pile if i != target else combine(transfer, pile)
       for i, pile in enumerate(piles)
     )
   return piles
+
+
+def idGroup(n, id, pool):
+  """Make a linked list of streaks of n cards with the same id.
+
+  Positions are taken from the iterator pool.
+  """
+
+  def f(lst, position):
+    return (
+      ilinkedlist.Pair(Streak(position, 1, id), lst)
+      if not lst or position + 1 != lst.car.position
+      else ilinkedlist.Pair(Streak(position, lst.car.len + 1, id), lst.cdr)
+    )
+
+  return functools.reduce(
+    f, sorted(itertools.islice(pool, n), reverse=True), ilinkedlist.nil,
+  )
+
+
+def pileSize(pile):
+  """Return the sum of the lengths of all streaks in pile."""
+  return sum(x.len for x in pile)
 
 
 def main(argv):
@@ -154,34 +175,22 @@ def main(argv):
   pool = iter(random.Random(args.seed).sample(range(nCards), nCards))
   # This gives us the id for each group of identical cards.
   idPool = itertools.count()
-
-  def addGroup(deck, n):
-    """deck is the deck we've built so far. n is the number of cards to add."""
-    id = next(idPool)
-    return combine(
-      ilinkedlist.new(
-        Card(id, position) for position in sorted(itertools.islice(pool, n))
-      ),
-      deck,
-    )
-
   piles = ilinkedlist.new((
     functools.reduce(
-      addGroup, itertools.chain(itertools.repeat(1, uniques), identicals),
+      lambda deck, n: combine(idGroup(n, next(idPool), pool), deck),
+      itertools.chain(itertools.repeat(1, uniques), identicals),
       ilinkedlist.nil,
     ),
   ))
   while piles:
     hand = piles.car
+    size = pileSize(hand)
     rest = piles.cdr
-    if all(
-        len(node) == 1 or node.car.position + 1 == node.cdr.car.position
-        for node in hand.nodes()
-    ):
-      print(f'Pile of {len(hand)} cards is shuffled.')
+    if len(hand) < 2:
+      print(f'Pile of {size} cards is shuffled.')
       piles = rest
     else:
-      print(*(len(pile) for pile in piles))
+      print(*(pileSize(pile) for pile in piles))
       try:
         newPiles = split(hand)
       except EOFError:
