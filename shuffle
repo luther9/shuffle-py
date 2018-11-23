@@ -3,10 +3,6 @@
 # Copyright 2018 Luther Thompson
 # This program is licensed under CC-0.
 
-# TODO:
-# Detect streaks and always keep them together when splitting.
-# Do this by using topStreak inside getTransfer.
-
 import argparse
 import collections
 import functools
