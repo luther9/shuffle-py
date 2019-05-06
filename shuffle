@@ -132,13 +132,19 @@ def combine(a, b):
 
 
 def split(hand):
-    """Guide the user to split the hand pile into two piles."""
+    """Guide the user to split the hand pile into two piles.
+
+    Return the two new piles after the split. On EOF, return None.
+    """
     median = min(c.position for c in hand) + pileSize(hand) / 2
     piles = (), ()
     while hand:
         target, transfer, hand = getTransfer(hand, median)
         letter = 'B' if target else 'A'
-        input(f'{pileSize(transfer)} to {letter}')
+        try:
+            input(f'{pileSize(transfer)} to {letter}')
+        except EOFError:
+            return
         piles = tuple(
             pile if i != target else combine(transfer, pile)
             for i, pile in enumerate(piles)
@@ -196,13 +202,13 @@ def main(argv):
             piles = rest
         else:
             print(*(pileSize(pile) for pile in piles))
-            try:
-                newPiles = split(hand)
-            except EOFError:
+            newPiles = split(hand)
+            # If the user hits Ctrl-D, exit.
+            if not newPiles:
                 print()
-                break
+                return
             piles = newPiles + rest
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))
