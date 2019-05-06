@@ -3,15 +3,15 @@
 # Copyright 2018-2019 Luther Thompson
 # This program is licensed under CC-0.
 
-import argparse
+from argparse import ArgumentParser
 from dataclasses import dataclass
-import functools
+from functools import reduce
 import itertools
 from random import Random
 import sys
 from typing import Optional
 
-parser = argparse.ArgumentParser(add_help=False)
+parser = ArgumentParser(add_help=False)
 parser.add_argument('-help', action='help')
 parser.add_argument('-seed', type=int, help='Random number seed')
 parser.add_argument(
@@ -123,7 +123,7 @@ def combineIdenticals(upper, lower):
 
 
 def combine(a, b):
-    """Combine two card piles into a single linked list."""
+    """Combine two card piles into a single tuple."""
     if not b:
         return a
     aMain, aGroup = bottomIdGroup(a)
@@ -159,11 +159,11 @@ def idGroup(n, id, pool):
         last = lst[-1]
         return (
             tackedOn
-            if position != last.position + 1
+            if position != last.position + last.len
             else lst[:-1] + (Streak(last.position, last.len + 1, id),)
         )
 
-    return functools.reduce(f, sorted(itertools.islice(pool, n)), ())
+    return reduce(f, sorted(itertools.islice(pool, n)), ())
 
 
 def pileSize(pile):
@@ -181,7 +181,7 @@ def main(argv):
     # This gives us the id for each group of identical cards.
     idPool = itertools.count()
     piles = (
-        functools.reduce(
+        reduce(
             lambda deck, n: combine(idGroup(n, next(idPool), pool), deck),
             itertools.chain(itertools.repeat(1, uniques), identicals),
             (),
