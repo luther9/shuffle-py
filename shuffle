@@ -9,7 +9,6 @@ from functools import reduce
 import itertools
 from random import Random
 import sys
-from typing import Optional
 
 parser = ArgumentParser(add_help=False)
 parser.add_argument('-help', action='help')
@@ -29,66 +28,65 @@ class Streak:
 
     position: The Streak's final position in the shuffled deck.
     len: The length of the Streak.
-    id: Identical cards have the same id. id is None if the Streak would
-    otherwise have multiple ids or if the Streak has a unique card.
     """
     position: int
     len: int
-    id: Optional[int] = None
+
+    def target(self, median):
+        """True if the streak belongs in pile B."""
+        return self.position + self.len / 2 <= median
+
+    def targetMatch(self, median, target):
+        """Check whether this streak's target matches the given target."""
+        return self.target(median) == target
 
 
-def getTarget(card, median):
-    """True if the card belongs in pile B."""
-    return card.position + card.len / 2 <= median
+def unaryIdGroup(position, len):
+    """Return a set containing the Streak with the given arguments."""
+    return frozenset((Streak(position, len),))
+
+
+def firstTarget(pile, median):
+    """Determine the first target when splitting this pile."""
+    # Whether there is an odd number of mixed groups before the current one.
+    mixed = False
+    for group in pile:
+        targets = frozenset(s.target(median) for s in group)
+        if True not in targets:
+            return mixed
+        if False not in targets:
+            return not mixed
+        mixed = not mixed
+    return False
+
+
+def optionalItemTuple(container):
+    """Return a tuple. If container is not empty, put it in the tuple."""
+    return (container,) if container else ()
 
 
 def getTransfer(hand, median):
     """Return a 3-tuple describing a transfer from the hand to a new pile.
 
     0: The target pile. False for A, True for B.
-    1: The list of streaks that go to the target pile.
+    1: The list of id groups that go to the target pile.
     2: The remaining hand.
     """
-    target = getTarget(hand[0], median)
-    for i, _ in filter(
-        lambda e: getTarget(e[1], median) != target,
-        enumerate(hand),
-    ):
-        return target, hand[:i], hand[i:]
+    target = firstTarget(hand, median)
+    transfer = ()
+    for i, group in enumerate(hand):
+        transferHalf = frozenset(
+            s for s in group if s.targetMatch(median, target)
+        )
+        handHalf = group - transferHalf
+        if handHalf:
+            return (
+                target,
+                transfer + optionalItemTuple(transferHalf),
+                (handHalf,) + hand[i+1:],
+            )
+        transfer += group,
     return target, hand, ()
-
-
-def unequalId(id):
-    """Return a function that checks if its argument[1].id is unequal to id."""
-    return lambda e: e[1].id != id
-
-
-def bottomIdGroup(pile):
-    """Return pile split into two lists with the second one being all cards at
-    the end with the same id.
-
-    pile must not be empty. If the last id is None, split off only one streak.
-    """
-    id = pile[-1].id
-    if id is None:
-        return pile[:-1], pile[-1:]
-    for i, _ in filter(unequalId(id), enumerate(reversed(pile))):
-        return pile[:-i], pile[-i:]
-    return (), pile
-
-
-def topIdGroup(pile):
-    """Return pile split into two lists with the first one being all cards at the
-    top with the same id.
-
-    pile must not be nil. If the first id is None, split off only one streak.
-    """
-    id = pile[0].id
-    if id is None:
-        return pile[:1], pile[1:]
-    for i, _ in filter(unequalId(id), enumerate(pile)):
-        return pile[:i], pile[i:]
-    return pile, ()
 
 
 def findMatchingStreak(pile, target):
@@ -96,9 +94,8 @@ def findMatchingStreak(pile, target):
     with that streak moved out to a second value. Otherwise, return None. pile
     must be homogeneous.
     """
-    for i, streak in enumerate(pile):
-        if streak.position + streak.len == target:
-            return pile[:i] + pile[i+1:], streak
+    for streak in (s for s in pile if s.position + s.len == target):
+        return pile.difference((streak,)), streak
 
 
 def combineIdenticals(upper, lower):
@@ -106,29 +103,28 @@ def combineIdenticals(upper, lower):
 
     If possible, rearrange the cards to create a new streak between them.
     """
-    # We search lower first so that if the bottom of upper and the top of lower
-    # already match, we can keep them sorted rather than try some other
-    # rearrangement.
-    for i, lowerStreak in enumerate(lower):
+    for lowerStreak in lower:
         rearrangement = findMatchingStreak(upper, lowerStreak.position)
         if rearrangement:
             fixedUpper, last = rearrangement
             return (
-                fixedUpper
-                + (Streak(last.position, last.len + lowerStreak.len),)
-                + lower[:i]
-                + lower[i+1:]
+                optionalItemTuple(fixedUpper)
+                + (unaryIdGroup(last.position, last.len + lowerStreak.len),)
+                + optionalItemTuple(lower.difference((lowerStreak,)))
             )
-    return upper + lower
+    return upper, lower
 
 
 def combine(a, b):
     """Combine two card piles into a single tuple."""
     if not b:
         return a
-    aMain, aGroup = bottomIdGroup(a)
-    bGroup, bMain = topIdGroup(b)
-    return aMain + combineIdenticals(aGroup, bGroup) + bMain
+    return a[:-1] + combineIdenticals(a[-1], b[0]) + b[1:]
+
+
+def pileToStreaks(pile):
+    """Iterate through all streaks in pile."""
+    return (s for g in pile for s in g)
 
 
 def split(hand):
@@ -136,7 +132,7 @@ def split(hand):
 
     Return the two new piles after the split. On EOF, return None.
     """
-    median = min(c.position for c in hand) + pileSize(hand) / 2
+    median = min(c.position for c in pileToStreaks(hand)) + pileSize(hand) / 2
     piles = (), ()
     while hand:
         target, transfer, hand = getTransfer(hand, median)
@@ -152,29 +148,31 @@ def split(hand):
     return piles
 
 
-def idGroup(n, id, pool):
-    """Make a tuple of streaks of n cards with the same id.
+def addCardToGroup(lst, position):
+    single = Streak(position, 1),
+    if not lst:
+        return single
+    last = lst[-1]
+    return (
+        lst + single
+        if position != last.position + last.len
+        else lst[:-1] + (Streak(last.position, last.len + 1),)
+    )
 
-    Positions are taken from the iterator pool.
+
+def idGroup(n, pool):
+    """Make a set of streaks of n cards.
+
+    Positions are taken from pool, which must be iterable.
     """
-
-    def f(lst, position):
-        tackedOn = lst + (Streak(position, 1, id),)
-        if not lst:
-            return tackedOn
-        last = lst[-1]
-        return (
-            tackedOn
-            if position != last.position + last.len
-            else lst[:-1] + (Streak(last.position, last.len + 1, id),)
-        )
-
-    return reduce(f, sorted(itertools.islice(pool, n)), ())
+    return frozenset(
+        reduce(addCardToGroup, sorted(itertools.islice(pool, n)), ()),
+    )
 
 
 def pileSize(pile):
     """Return the sum of the lengths of all streaks in pile."""
-    return sum(x.len for x in pile)
+    return sum(s.len for s in pileToStreaks(pile))
 
 
 def main(argv):
@@ -184,11 +182,9 @@ def main(argv):
     nCards = uniques + sum(identicals)
     # This gives us the position for each card.
     pool = iter(Random(args.seed).sample(range(nCards), nCards))
-    # This gives us the id for each group of identical cards.
-    idPool = itertools.count()
     piles = (
         reduce(
-            lambda deck, n: combine(idGroup(n, next(idPool), pool), deck),
+            lambda deck, n: combine((idGroup(n, pool),), deck),
             itertools.chain(itertools.repeat(1, uniques), identicals),
             (),
         ),
