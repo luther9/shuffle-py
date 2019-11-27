@@ -184,8 +184,14 @@ def main(argv):
     pool = iter(Random(args.seed).sample(range(nCards), nCards))
     piles = (
         reduce(
-            lambda deck, n: combine((idGroup(n, pool),), deck),
-            itertools.chain(itertools.repeat(1, uniques), identicals),
+            lambda deck, g: combine(g, deck),
+            (
+                (idGroup(n, pool),)
+                for n in itertools.chain(
+                    itertools.repeat(1, uniques),
+                    identicals,
+                )
+            ),
             (),
         ),
     )
