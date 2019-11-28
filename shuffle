@@ -156,16 +156,15 @@ def getStreaks(iterable):
     non-empty iterable.
     """
     positions = iter(sorted(iterable))
-    position = last = next(positions)
+    position = next(positions)
     size = 1
     for p in positions:
-        if last + 1 == p:
+        if position + size == p:
             size += 1
         else:
             yield Streak(position, size)
             position = p
             size = 1
-        last = p
     yield Streak(position, size)
 
 
