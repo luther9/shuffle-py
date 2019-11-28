@@ -89,13 +89,13 @@ def getTransfer(hand, median):
     return target, hand, ()
 
 
-def findMatchingStreak(pile, target):
-    """If pile contains a streak that would be continued by target, return pile
-    with that streak moved out to a second value. Otherwise, return None. pile
-    must be homogeneous.
+def findMatchingStreak(group, target):
+    """If group contains a streak that would be continued by target, return
+    group with that streak moved out to a second value. Otherwise, return None.
     """
-    for streak in (s for s in pile if s.position + s.len == target):
-        return pile.difference((streak,)), streak
+    for streak in group:
+        if streak.position + streak.len == target:
+            return group.difference((streak,)), streak
 
 
 def combineIdenticals(upper, lower):
@@ -116,15 +116,18 @@ def combineIdenticals(upper, lower):
 
 
 def combine(a, b):
-    """Combine two card piles into a single tuple."""
-    if not b:
-        return a
-    return a[:-1] + combineIdenticals(a[-1], b[0]) + b[1:]
+    """Combine two card piles into a single tuple. a must not be empty."""
+    return a[:-1] + combineIdenticals(a[-1], b[0]) + b[1:] if b else a
 
 
 def pileToStreaks(pile):
     """Iterate through all streaks in pile."""
     return (s for g in pile for s in g)
+
+
+def pileSize(pile):
+    """Return the sum of the lengths of all streaks in pile."""
+    return sum(s.len for s in pileToStreaks(pile))
 
 
 def split(hand):
@@ -148,16 +151,22 @@ def split(hand):
     return piles
 
 
-def addCardToGroup(lst, position):
-    single = Streak(position, 1),
-    if not lst:
-        return single
-    last = lst[-1]
-    return (
-        lst + single
-        if position != last.position + last.len
-        else lst[:-1] + (Streak(last.position, last.len + 1),)
-    )
+def getStreaks(iterable):
+    """Iterate through all streaks that can be formed from the numbers in a
+    non-empty iterable.
+    """
+    positions = iter(sorted(iterable))
+    position = last = next(positions)
+    size = 1
+    for p in positions:
+        if last + 1 == p:
+            size += 1
+        else:
+            yield Streak(position, size)
+            position = p
+            size = 1
+        last = p
+    yield Streak(position, size)
 
 
 def idGroup(n, pool):
@@ -165,14 +174,7 @@ def idGroup(n, pool):
 
     Positions are taken from pool, which must be iterable.
     """
-    return frozenset(
-        reduce(addCardToGroup, sorted(itertools.islice(pool, n)), ()),
-    )
-
-
-def pileSize(pile):
-    """Return the sum of the lengths of all streaks in pile."""
-    return sum(s.len for s in pileToStreaks(pile))
+    return frozenset(getStreaks(itertools.islice(pool, n)))
 
 
 def main(argv):
